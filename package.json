@@ -20,7 +20,6 @@
   },
   "main": "dist/index.js",
   "scripts": {
-    "preinstall": "npm list -g homebridge || npm install -g homebridge",
     "lint": "eslint src/**.ts",
     "build": "rimraf ./dist && tsc",
     "dev": "npm run build && homebridge -D -I -U ./.dev-homebridge -P .",
