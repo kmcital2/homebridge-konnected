@@ -1,30 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { Logger } from 'homebridge';
 import fetch from 'node-fetch';
-
-/**
- * A single entity state as emitted by the ESPHome web_server v2 SSE stream
- * (GET /events) and the per-entity REST endpoints.
- *
- * Example SSE frame:
- *   event: state
- *   data: {"id":"binary_sensor-great_room_windows","domain":"binary_sensor",
- *          "name":"Great Room Windows","value":true,"state":"ON"}
- */
-export interface EspHomeEntityState {
-  /** Full web_server id, e.g. 'binary_sensor-great_room_windows'. */
-  id: string;
-  /** Entity domain, e.g. 'binary_sensor', 'switch', 'sensor', 'button'. */
-  domain: string;
-  /** REST object_id (id with the leading '<domain>-' removed), e.g. 'great_room_windows'. */
-  objectId: string;
-  /** Friendly name, e.g. 'Great Room Windows'. */
-  name: string;
-  /** Raw numeric/boolean value (booleans for binary_sensor & switch). */
-  value: boolean | number | string;
-  /** Human-readable state string, e.g. 'ON' / 'OFF'. */
-  state: string;
-}
+import { EspHomeEntityState, IEspHomeClient } from './esphomeTransport.js';
 
 /**
  * ESPHome web-server (REST + SSE) client for a single Konnected panel.
@@ -43,7 +20,7 @@ export interface EspHomeEntityState {
  *  - 'connect'    ()                    SSE stream opened
  *  - 'disconnect' (reason: string)      SSE stream closed/errored (will reconnect)
  */
-export class EspHomeClient extends EventEmitter {
+export class EspHomeClient extends EventEmitter implements IEspHomeClient {
   private readonly baseUrl: string;
   private controller: AbortController | null = null;
   private stopped = false;

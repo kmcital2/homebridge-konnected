@@ -4,7 +4,7 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import { TYPES_TO_ACCESSORIES, ZONE_TYPES } from './constants.js';
 import { RuntimeCacheInterface, EspHomePanel, EspHomeZone } from './interfaces.js';
 import { KonnectedPlatformAccessory } from './platformAccessory.js';
-import { EspHomeClient, EspHomeEntityState } from './esphomeClient.js';
+import { IEspHomeClient, EspHomeEntityState, createEspHomeClient, panelTransport } from './esphomeTransport.js';
 
 type AccessoryType = keyof typeof TYPES_TO_ACCESSORIES;
 
@@ -53,12 +53,14 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   private beeperCountdownInterval;
   private beeperCountdownStopHandle;
 
-  // ESPHome web-server clients, keyed by panel id
-  private clients: Map<string, EspHomeClient> = new Map();
+  // ESPHome clients (web-server or native), keyed by panel id
+  private clients: Map<string, IEspHomeClient> = new Map();
   // fast lookup from `${panelId}|${entityId}` to the zone's HAP UUID
   private entityToZoneUUID: Map<string, string> = new Map();
   // entities seen on the stream that aren't in the config (logged once each)
   private loggedUnconfigured: Set<string> = new Set();
+  // set during shutdown so async-created clients don't linger
+  private stopping = false;
 
   constructor(public readonly log: Logger, public readonly config: PlatformConfig, public readonly api: API) {
     this.Service = this.api.hap.Service;
@@ -93,6 +95,7 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
     });
 
     const cleanup = () => {
+      this.stopping = true;
       this.clients.forEach((client) => client.stop());
     };
     process.on('SIGINT', cleanup).on('SIGTERM', cleanup);
@@ -314,10 +317,15 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   }
 
   /**
-   * Open an ESPHome event stream for each configured panel and reflect state into HomeKit.
+   * Open an ESPHome connection for each configured panel and reflect state into HomeKit.
    */
   connectPanels() {
     const panels: EspHomePanel[] = Array.isArray(this.config.panels) ? this.config.panels : [];
+
+    if (panels.filter((p) => p.host).length === 0) {
+      this.log.warn('No panels configured. Add panels[] with a "host" and "zones" to your config.');
+      return;
+    }
 
     panels.forEach((panel) => {
       if (!panel.host) {
@@ -330,16 +338,22 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
         return;
       }
 
-      const client = new EspHomeClient(panel.host, this.log, panelLabel);
-      client.on('state', (entity: EspHomeEntityState) => this.handleEntityState(panelId, panelLabel, entity));
-      client.on('disconnect', () => this.markPanelEntitiesNoResponse(panelId));
-      this.clients.set(panelId, client);
-      client.start();
+      createEspHomeClient(panel, this.log, panelLabel)
+        .then((client) => {
+          if (this.stopping) {
+            client.stop();
+            return;
+          }
+          client.on('state', (entity: EspHomeEntityState) => this.handleEntityState(panelId, panelLabel, entity));
+          client.on('disconnect', () => this.markPanelEntitiesNoResponse(panelId));
+          this.clients.set(panelId, client);
+          this.log.debug(`[${panelLabel}] using ESPHome '${panelTransport(panel)}' transport`);
+          client.start();
+        })
+        .catch((error: Error) => {
+          this.log.error(`[${panelLabel}] failed to initialize transport: ${error.message}`);
+        });
     });
-
-    if (this.clients.size === 0) {
-      this.log.warn('No panels configured. Add panels[] with a "host" and "zones" to your config.');
-    }
   }
 
   /**

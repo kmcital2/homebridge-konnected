@@ -29,10 +29,18 @@ export interface ConfigPlatformInterface extends PlatformConfig {
 export interface EspHomePanel {
   /** Friendly name for the panel, used in accessory model strings and logs. */
   name?: string;
-  /** Host or IP of the panel's ESPHome web server, e.g. '10.0.0.122' or '10.0.0.122:80'. */
+  /** Host or IP of the panel's ESPHome device, e.g. '10.0.0.122' or '10.0.0.122:80'. */
   host: string;
   /** Optional stable identifier for HAP UUIDs; defaults to the host if omitted. */
   id?: string;
+  /** Which ESPHome transport to use. 'webserver' (REST + SSE, default) or 'native' (API on port 6053). */
+  transport?: 'webserver' | 'native';
+  /** Native API port (default 6053). Only used when transport is 'native'. */
+  port?: number;
+  /** Native API noise encryption key, if the firmware enables api.encryption. */
+  encryptionKey?: string;
+  /** Native API legacy password, if used instead of encryption. */
+  password?: string;
   zones?: EspHomeZone[];
 }
 
