@@ -40,8 +40,9 @@ Each panel is identified by `host` (+ an optional stable `id`), and each zone ma
   "panels": [
     {
       "name": "Alarm Panel Pro",
-      "host": "10.0.0.122",
-      "id": "c4dee2f39eb4",
+      "host": "alarm-panel-pro.local",
+      "id": "a1b2c3d4e5f6",
+      "transport": "webserver",
       "zones": [
         { "entityId": "binary_sensor-front_hall_motion", "type": "motion",  "name": "Front Hall Motion" },
         { "entityId": "binary_sensor-living_room_windows", "type": "contact", "name": "Living Room Windows", "invert": false },
