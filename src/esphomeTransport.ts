@@ -20,6 +20,8 @@ export interface EspHomeEntityState {
   state: string;
   /** ESPHome device_class when known (native API exposes this; the web server does not). */
   deviceClass?: string;
+  /** ESPHome entity_category: 0 = normal, 1 = config, 2 = diagnostic. Used to auto-skip non-zone entities. */
+  entityCategory?: number;
 }
 
 /**

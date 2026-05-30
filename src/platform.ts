@@ -159,6 +159,43 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   }
 
   /**
+   * Derive zones from a panel's entity snapshot when no explicit `zones` are configured.
+   * Keeps normal-category entities that map to a HomeKit type (binary_sensor/switch/temp),
+   * skipping diagnostic/config entities (uptime, wifi, restart, …) and anything excluded.
+   * The returned zones carry no `type`/`name` so the normal build path infers them from
+   * device_class and the firmware name.
+   */
+  private autoDiscoverZones(panelLabel: string, snapshot: Map<string, EspHomeEntityState>, exclude: string[]): EspHomeZone[] {
+    const discovered: EspHomeZone[] = [];
+    const skipped: string[] = [];
+
+    snapshot.forEach((entity) => {
+      if (exclude.includes(entity.id)) {
+        skipped.push(`${entity.id} (excluded)`);
+        return;
+      }
+      // entity_category: 1 = config, 2 = diagnostic — never real zones
+      if (entity.entityCategory === 1 || entity.entityCategory === 2) {
+        return;
+      }
+      // only entities that map to a HomeKit accessory type
+      if (!this.inferType(entity.domain, entity.deviceClass)) {
+        return;
+      }
+      discovered.push({ enabled: true, entityId: entity.id });
+    });
+
+    this.log.info(
+      `[${panelLabel}] Auto-discovered ${discovered.length} zone(s) from the panel (no zones[] configured).` +
+        (skipped.length ? ` Skipped: ${skipped.join(', ')}.` : '')
+    );
+    if (discovered.length === 0 && snapshot.size === 0) {
+      this.log.warn(`[${panelLabel}] No entities seen yet — the panel may be unreachable. No zones created.`);
+    }
+    return discovered;
+  }
+
+  /**
    * Orchestrate startup: connect each panel (capturing its initial state burst for
    * type inference), build the accessories, then register the Security System.
    */
@@ -178,7 +215,12 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   buildPanelZones(panel: EspHomePanel, snapshot: Map<string, EspHomeEntityState>) {
     const panelId = this.panelIdFor(panel);
     const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
-    const zones: EspHomeZone[] = Array.isArray(panel.zones) ? panel.zones : [];
+
+    // explicit zones if configured, otherwise auto-discover from the panel's entities
+    let zones: EspHomeZone[] = Array.isArray(panel.zones) ? panel.zones : [];
+    if (zones.length === 0) {
+      zones = this.autoDiscoverZones(panelLabel, snapshot, Array.isArray(panel.exclude) ? panel.exclude : []);
+    }
 
     const panelRuntimeZones: RuntimeCacheInterface[] = [];
     const retainedAccessories: PlatformAccessory[] = [];

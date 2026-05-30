@@ -41,7 +41,15 @@ export interface EspHomePanel {
   encryptionKey?: string;
   /** Native API legacy password, if used instead of encryption. */
   password?: string;
+  /**
+   * Explicit zone list. When omitted (or empty), zones are auto-discovered from the
+   * panel: every normal-category binary_sensor/switch is exposed, auto-typed from
+   * device_class and named from the firmware (diagnostic/config entities are skipped).
+   * Provide this only to rename, retype, invert, set alarm behavior, or hand-pick zones.
+   */
   zones?: EspHomeZone[];
+  /** entityIds to skip during auto-discovery (for stray entities that aren't real zones). */
+  exclude?: string[];
 }
 
 /**
@@ -52,8 +60,12 @@ export interface EspHomeZone {
   enabled?: boolean;
   /** ESPHome web_server entity id, e.g. 'binary_sensor-great_room_windows' or 'switch-alarm1'. */
   entityId: string;
-  /** HomeKit accessory type — a key of TYPES_TO_ACCESSORIES (contact, motion, smoke, water, glass, siren, switch, ...). */
-  type: string;
+  /**
+   * HomeKit accessory type — a key of TYPES_TO_ACCESSORIES (contact, motion, smoke, water,
+   * glass, siren, switch, ...). Optional: when omitted it's auto-detected from the entity's
+   * device_class (native API) or domain.
+   */
+  type?: string;
   /** Display name in HomeKit; falls back to the ESPHome entity name. */
   name?: string;
   /** Invert the reported binary state (e.g. firmware reports ON for closed). */

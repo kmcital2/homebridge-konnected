@@ -102,6 +102,7 @@ export class EspHomeNativeClient extends EventEmitter {
                 value: value,
                 state: typeof value === 'boolean' ? (value ? 'ON' : 'OFF') : String(value),
                 deviceClass: e.config.deviceClass ?? '',
+                entityCategory: typeof e.config.entityCategory === 'number' ? e.config.entityCategory : undefined,
             });
         };
         e.on('state', emitState);

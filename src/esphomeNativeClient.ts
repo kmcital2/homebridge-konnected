@@ -107,7 +107,7 @@ export class EspHomeNativeClient extends EventEmitter implements IEspHomeClient 
   private registerEntity(entity: never): void {
     const e = entity as unknown as {
       type: string;
-      config: { objectId: string; name?: string; deviceClass?: string };
+      config: { objectId: string; name?: string; deviceClass?: string; entityCategory?: number };
       state?: { state?: unknown };
       on: (event: string, cb: (s: unknown) => void) => void;
       setState?: (s: boolean) => void;
@@ -131,6 +131,7 @@ export class EspHomeNativeClient extends EventEmitter implements IEspHomeClient 
         value: value as boolean | number | string,
         state: typeof value === 'boolean' ? (value ? 'ON' : 'OFF') : String(value),
         deviceClass: e.config.deviceClass ?? '',
+        entityCategory: typeof e.config.entityCategory === 'number' ? e.config.entityCategory : undefined,
       } as EspHomeEntityState);
     };
 

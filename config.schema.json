@@ -74,8 +74,15 @@
               "functionBody": "return model.panels && model.panels[arrayIndices[0]] && model.panels[arrayIndices[0]].transport === 'native';"
             }
           },
+          "exclude": {
+            "title": "Exclude (auto-discovery)",
+            "description": "entityIds to skip when zones are auto-discovered (for stray entities that aren't real zones).",
+            "type": "array",
+            "items": { "type": "string", "placeholder": "(E.g., binary_sensor-test)" }
+          },
           "zones": {
-            "title": "Zones",
+            "title": "Zones (optional — omit to auto-discover)",
+            "description": "Leave empty to auto-discover all real sensors/switches from the panel (best on the Native API transport, which provides device_class for accurate typing). Add zones only to rename, retype, invert, set alarm behavior, or hand-pick.",
             "type": "array",
             "items": {
               "type": "object",

@@ -30,7 +30,15 @@
 
 ### Configuration (this fork)
 
-Each panel is identified by `host` (+ an optional stable `id`), and each zone maps an ESPHome `entityId` to a HomeKit `type`:
+**Zero-config zones:** if a panel has no `zones`, they're **auto-discovered** — every real sensor/switch is exposed, typed from `device_class` and named from the firmware, with diagnostic/utility entities (uptime, Wi-Fi, restart, …) skipped automatically. Auto-typing is most accurate on the **Native API** transport (the web server doesn't expose `device_class`, so binary sensors default to `contact` there). Use `exclude: ["entityId", …]` to drop stray entities, and only add a `zones` list to rename, retype, `invert`, set alarm behavior, or hand-pick.
+
+```jsonc
+// minimal: auto-discover everything on a panel
+{ "platform": "konnected", "name": "Konnected",
+  "panels": [ { "name": "Alarm Panel Pro", "host": "alarm-panel-pro.local", "transport": "native" } ] }
+```
+
+For explicit control, each panel is identified by `host` (+ an optional stable `id`), and each zone maps an ESPHome `entityId` to a HomeKit `type`:
 
 ```jsonc
 {

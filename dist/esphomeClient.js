@@ -208,6 +208,7 @@ export class EspHomeClient extends EventEmitter {
             name: typeof parsed.name === 'string' ? parsed.name : id,
             value: parsed.value,
             state: typeof parsed.state === 'string' ? parsed.state : '',
+            entityCategory: typeof parsed.entity_category === 'number' ? parsed.entity_category : undefined,
         });
     }
 }
