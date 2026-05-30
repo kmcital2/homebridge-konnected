@@ -1,0 +1,7 @@
+{
+  "watch": ["src"],
+  "ext": "ts,json",
+  "ignore": [".dev-homebridge/**", "dist/**"],
+  "exec": "npm run build && homebridge -D -I -U ./.dev-homebridge -P .",
+  "signal": "SIGTERM"
+}

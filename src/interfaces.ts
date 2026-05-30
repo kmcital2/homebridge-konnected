@@ -1,56 +1,59 @@
 import { PlatformConfig } from 'homebridge';
 
 /**
- * Common object structure returned from the panels.
- */
-export interface PanelObjectInterface {
-  gw: string;
-  nm: string;
-  ip: string;
-  port: number;
-  mac: string;
-  rssi: number;
-  hwVersion: string;
-  settings: {
-    endpoint: string;
-    endpoint_type: string;
-  };
-  uptime: number;
-  swVersion: string;
-  actuators: [];
-  dht_sensors: [];
-  ds18b20_sensors: [];
-  sensors: [];
-  heap: number;
-  chipId?: string;
-  model?: string;
-  connection_type?: string;
-}
-
-/**
  * Common object structure for the Konnected platform Homebridge config.
+ *
+ * NOTE: This fork targets Konnected's ESPHome-based Alarm Panel Pro firmware.
+ * Panels are addressed directly by host (no SSDP discovery / provisioning), and
+ * each zone maps an ESPHome web_server entity id to a HomeKit accessory type.
  */
 export interface ConfigPlatformInterface extends PlatformConfig {
   advanced?: {
-    listenerPort?: number;
-    listenerIP?: string;
-    discoveryTimeout?: string;
-    entryDelay?: number;
+    /** Enable the plugin-managed HomeKit Security System accessory + arming logic. */
+    securitySystem?: boolean;
+    entryDelaySettings?: {
+      delay?: number;
+      pulseDuration?: number;
+    };
+    exitDelaySettings?: {
+      delay?: number;
+      audibleBeeperModes?: string[];
+    };
   };
-  panels?: Panel;
+  panels?: EspHomePanel[];
 }
 
-interface Panel {
+/**
+ * A Konnected (ESPHome) panel as defined in the plugin config.
+ */
+export interface EspHomePanel {
+  /** Friendly name for the panel, used in accessory model strings and logs. */
   name?: string;
-  uuid?: string;
-  zones?: Zone;
+  /** Host or IP of the panel's ESPHome web server, e.g. '10.0.0.122' or '10.0.0.122:80'. */
+  host: string;
+  /** Optional stable identifier for HAP UUIDs; defaults to the host if omitted. */
+  id?: string;
+  zones?: EspHomeZone[];
 }
 
-interface Zone {
+/**
+ * A single zone (ESPHome entity) mapped to a HomeKit accessory.
+ */
+export interface EspHomeZone {
+  /** Whether to expose this zone in HomeKit. */
   enabled?: boolean;
-  zoneNumber?: number;
-  zoneType?: string;
-  zoneLocation?: string;
+  /** ESPHome web_server entity id, e.g. 'binary_sensor-great_room_windows' or 'switch-alarm1'. */
+  entityId: string;
+  /** HomeKit accessory type — a key of TYPES_TO_ACCESSORIES (contact, motion, smoke, water, glass, siren, switch, ...). */
+  type: string;
+  /** Display name in HomeKit; falls back to the ESPHome entity name. */
+  name?: string;
+  /** Invert the reported binary state (e.g. firmware reports ON for closed). */
+  invert?: boolean;
+  /** Security modes (as string codes) this sensor may trigger the alarm in (Security System feature). */
+  triggerableModes?: string[];
+  /** Sound the beeper momentarily when this sensor changes (Security System feature). */
+  audibleBeep?: boolean;
 }
 
 /**
@@ -64,12 +67,15 @@ export interface RuntimeCacheInterface {
   type: string;
   model: string;
   serialNumber: string;
-  panel: PanelObjectInterface;
+  /** ESPHome transport coordinates for this zone. */
+  panelId: string;
+  entityId: string;
+  entityDomain: string;
+  entityObjectId: string;
   invert?: boolean;
-  pollInterval?: number;
   audibleBeep?: boolean;
   trigger?: string;
-  triggerableModes?: [];
+  triggerableModes?: string[];
   // the following are actively updated
   state?: boolean | number;
   humi?: number;

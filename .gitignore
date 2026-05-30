@@ -3,8 +3,6 @@ dist
 
 # ------------- Defaults ------------- #
 
-# Nodemon settings
-nodemon.json
 
 # Logs
 logs
@@ -124,3 +122,7 @@ dist
 .yarn/unplugged
 .yarn/build-state.yml
 .pnp.*
+
+# Local Homebridge dev instance — machine-local state and personal home config.
+# Kept out of git (this is a public fork). See DEV.md for the config shape.
+.dev-homebridge/
