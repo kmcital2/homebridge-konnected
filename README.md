@@ -19,11 +19,14 @@
 
 ## ⚡ ESPHome fork
 
-> **This is a fork that targets Konnected Alarm Panel Pro units running [ESPHome](https://esphome.io) firmware** (Konnected's current firmware), rather than the classic Konnected firmware the upstream plugin was built for.
+> **This fork targets Konnected Alarm Panel Pro units running [ESPHome](https://esphome.io) firmware** (Konnected's current firmware), rather than the classic Konnected firmware the upstream plugin was built for. **If your panels run the classic Konnected firmware, use the [upstream plugin](https://github.com/mkormendy/homebridge-konnected) instead** — this fork does not support SSDP discovery / `/settings` provisioning.
 >
-> Instead of SSDP discovery and `/settings` provisioning, this fork addresses each panel directly by host and talks to its **ESPHome web server** — subscribing to the `GET /events` Server-Sent Events stream for live zone state and using the REST API (`POST /<domain>/<object_id>/<action>`) to actuate switches/sirens.
+> Each panel is addressed directly by host. Two ESPHome transports are supported, selectable per panel:
 >
-> **Status:** zones expose as plain HomeKit sensors and switches today. The plugin-managed HomeKit Security System is gated behind `advanced.securitySystem` (off by default) while it is ported to the ESPHome model. See [`DEV.md`](DEV.md) for the local dev setup and architecture.
+> - **Web Server (default)** — subscribes to the `GET /events` Server-Sent Events stream for live state and uses the REST API (`POST /<domain>/<object_id>/<action>`) to actuate. Zero setup.
+> - **Native API (`transport: "native"`, port 6053)** — uses ESPHome's protobuf API. More efficient, exposes `device_class` metadata, supports an encryption key. Set `encryptionKey` (or `password`) if your firmware enables it.
+>
+> **Status:** zones expose as HomeKit sensors and switches. The plugin-managed HomeKit Security System is opt-in via `advanced.securitySystem` (off by default). See [`DEV.md`](DEV.md) for the local dev setup and architecture.
 
 ### Configuration (this fork)
 

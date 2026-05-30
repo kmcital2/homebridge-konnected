@@ -11,10 +11,15 @@ The upstream plugin talks to Konnected's **classic** firmware (SSDP discovery,
 Konnected Alarm Panel Pro now ships **ESPHome** firmware, which this fork
 targets instead:
 
-- **Transport:** `src/esphomeClient.ts` subscribes to each panel's ESPHome web
-  server SSE stream (`GET /events`) for zone state and uses the REST API
-  (`POST /<domain>/<object_id>/<action>`) to actuate switches. No SSDP, no
-  provisioning — the zones already live in the firmware build.
+- **Transport:** pluggable per panel behind `IEspHomeClient` (`src/esphomeTransport.ts`,
+  which also holds the factory). Two implementations:
+  - `src/esphomeClient.ts` — **web server** (default): subscribes to the SSE stream
+    (`GET /events`) and actuates via REST (`POST /<domain>/<object_id>/<action>`).
+  - `src/esphomeNativeClient.ts` — **native API** (`transport: "native"`, port 6053)
+    via `@2colors/esphome-native-api`: protobuf, push state, auto-reconnect, exposes
+    `device_class`. Optional `encryptionKey`/`password`.
+  No SSDP, no provisioning — the zones already live in the firmware build. Classic
+  Konnected firmware is intentionally **not** supported (use upstream for that).
 - **Config model:** each panel has a `host` (+ stable `id`) and a list of
   `zones`, each mapping an ESPHome `entityId` (e.g. `binary_sensor-front_hall_motion`)
   to a HomeKit `type` (`contact`/`motion`/`smoke`/`water`/`siren`/`switch`/…),

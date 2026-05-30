@@ -39,6 +39,41 @@
             "type": "string",
             "placeholder": "(E.g., c4dee2f39eb4)"
           },
+          "transport": {
+            "title": "Transport",
+            "description": "How to talk to the panel. Web Server (REST + SSE) works out of the box. Native API (port 6053) is more efficient and exposes device_class metadata, but may require an encryption key.",
+            "type": "string",
+            "default": "webserver",
+            "oneOf": [
+              { "title": "Web Server (REST + SSE)", "enum": ["webserver"] },
+              { "title": "Native API (port 6053)", "enum": ["native"] }
+            ]
+          },
+          "port": {
+            "title": "Native API Port",
+            "description": "Native API port (default 6053). Only used with the Native API transport.",
+            "type": "number",
+            "placeholder": "6053",
+            "condition": {
+              "functionBody": "return model.panels && model.panels[arrayIndices[0]] && model.panels[arrayIndices[0]].transport === 'native';"
+            }
+          },
+          "encryptionKey": {
+            "title": "Native API Encryption Key",
+            "description": "Base64 noise encryption key (api.encryption.key in the ESPHome config), if the firmware enables it.",
+            "type": "string",
+            "condition": {
+              "functionBody": "return model.panels && model.panels[arrayIndices[0]] && model.panels[arrayIndices[0]].transport === 'native';"
+            }
+          },
+          "password": {
+            "title": "Native API Password (legacy)",
+            "description": "Legacy API password, only if your firmware uses a password instead of an encryption key.",
+            "type": "string",
+            "condition": {
+              "functionBody": "return model.panels && model.panels[arrayIndices[0]] && model.panels[arrayIndices[0]].transport === 'native';"
+            }
+          },
           "zones": {
             "title": "Zones",
             "type": "array",
