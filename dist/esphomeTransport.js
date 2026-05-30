@@ -19,4 +19,3 @@ export async function createEspHomeClient(panel, log, label) {
     const { EspHomeClient } = await import('./esphomeClient.js');
     return new EspHomeClient(panel.host, log, label);
 }
-//# sourceMappingURL=esphomeTransport.js.map

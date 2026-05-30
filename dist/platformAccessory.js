@@ -250,4 +250,3 @@ export class KonnectedPlatformAccessory {
         return value;
     }
 }
-//# sourceMappingURL=platformAccessory.js.map

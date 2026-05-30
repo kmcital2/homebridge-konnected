@@ -143,4 +143,3 @@ export class EspHomeNativeClient extends EventEmitter {
         return true;
     }
 }
-//# sourceMappingURL=esphomeNativeClient.js.map

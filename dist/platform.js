@@ -607,4 +607,3 @@ export class KonnectedHomebridgePlatform {
         });
     }
 }
-//# sourceMappingURL=platform.js.map
