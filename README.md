@@ -17,6 +17,40 @@
 
 </span>
 
+## ⚡ ESPHome fork
+
+> **This is a fork that targets Konnected Alarm Panel Pro units running [ESPHome](https://esphome.io) firmware** (Konnected's current firmware), rather than the classic Konnected firmware the upstream plugin was built for.
+>
+> Instead of SSDP discovery and `/settings` provisioning, this fork addresses each panel directly by host and talks to its **ESPHome web server** — subscribing to the `GET /events` Server-Sent Events stream for live zone state and using the REST API (`POST /<domain>/<object_id>/<action>`) to actuate switches/sirens.
+>
+> **Status:** zones expose as plain HomeKit sensors and switches today. The plugin-managed HomeKit Security System is gated behind `advanced.securitySystem` (off by default) while it is ported to the ESPHome model. See [`DEV.md`](DEV.md) for the local dev setup and architecture.
+
+### Configuration (this fork)
+
+Each panel is identified by `host` (+ an optional stable `id`), and each zone maps an ESPHome `entityId` to a HomeKit `type`:
+
+```jsonc
+{
+  "platform": "konnected",
+  "name": "Konnected",
+  "advanced": { "securitySystem": false },
+  "panels": [
+    {
+      "name": "Alarm Panel Pro",
+      "host": "10.0.0.122",
+      "id": "c4dee2f39eb4",
+      "zones": [
+        { "entityId": "binary_sensor-front_hall_motion", "type": "motion",  "name": "Front Hall Motion" },
+        { "entityId": "binary_sensor-living_room_windows", "type": "contact", "name": "Living Room Windows", "invert": false },
+        { "entityId": "switch-alarm1", "type": "siren", "name": "Alarm Siren" }
+      ]
+    }
+  ]
+}
+```
+
+To list a panel's entity ids: `curl http://<panel-host>/events` — each `event: state` frame's `id` (e.g. `binary_sensor-front_hall_motion`, `switch-alarm1`) is what goes in `entityId`. Valid `type` values: `contact`, `motion`, `glass`, `water`, `smoke`, `temperature`, `humidtemp`, `siren`, `strobe`, `beeper`, `switch`.
+
 ## Supported Features
 
 <div align="left">

@@ -2,6 +2,8 @@
   "pluginAlias": "konnected",
   "pluginType": "platform",
   "singular": true,
+  "headerDisplay": "This fork targets Konnected **Alarm Panel Pro** units running **ESPHome** firmware. Each panel is addressed directly by its host/IP (no discovery or provisioning). For each zone, map an ESPHome entity to a HomeKit accessory.\n\nTo find a panel's entity ids, open `http://<panel-host>/events` in a browser, or `curl http://<panel-host>/events` — each `event: state` frame includes an `id` like `binary_sensor-front_hall_motion` and `switch-alarm1`.",
+  "footerDisplay": "Zone state streams live over the ESPHome web server (Server-Sent Events). Switches/sirens are actuated over the ESPHome REST API. See the project DEV.md for details.",
   "schema": {
     "name": {
       "title": "Name",
@@ -10,597 +12,166 @@
       "default": "Konnected",
       "required": true
     },
+    "panels": {
+      "title": "Panels",
+      "description": "Your Konnected (ESPHome) alarm panels.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "title": "Panel",
+        "properties": {
+          "name": {
+            "title": "Panel Name",
+            "description": "A friendly name for this panel (used in logs and accessory model names).",
+            "type": "string",
+            "placeholder": "(E.g., Alarm Panel Pro - Main)"
+          },
+          "host": {
+            "title": "Host / IP",
+            "description": "The panel's ESPHome web server host or IP address. A port may be appended (defaults to 80).",
+            "type": "string",
+            "required": true,
+            "placeholder": "(E.g., 10.0.0.122 or alarm-panel.local)"
+          },
+          "id": {
+            "title": "Panel ID (optional)",
+            "description": "A stable identifier for this panel, used to keep HomeKit accessory identities consistent if the IP changes (e.g. the ESPHome device id). Defaults to the host.",
+            "type": "string",
+            "placeholder": "(E.g., c4dee2f39eb4)"
+          },
+          "zones": {
+            "title": "Zones",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "title": "Zone",
+              "properties": {
+                "enabled": {
+                  "title": "Enabled",
+                  "description": "Expose this zone in HomeKit.",
+                  "type": "boolean",
+                  "default": true
+                },
+                "entityId": {
+                  "title": "ESPHome Entity ID",
+                  "description": "The web_server entity id, e.g. 'binary_sensor-front_hall_motion' or 'switch-alarm1'.",
+                  "type": "string",
+                  "required": true,
+                  "placeholder": "(E.g., binary_sensor-front_hall_motion)"
+                },
+                "type": {
+                  "title": "HomeKit Accessory Type",
+                  "type": "string",
+                  "required": true,
+                  "default": "contact",
+                  "oneOf": [
+                    { "title": "Contact Sensor", "enum": ["contact"] },
+                    { "title": "Motion Sensor", "enum": ["motion"] },
+                    { "title": "Glass Break Sensor (contact)", "enum": ["glass"] },
+                    { "title": "Water / Leak Sensor", "enum": ["water"] },
+                    { "title": "Smoke Sensor", "enum": ["smoke"] },
+                    { "title": "Temperature Sensor", "enum": ["temperature"] },
+                    { "title": "Humidity & Temperature Sensor", "enum": ["humidtemp"] },
+                    { "title": "Siren (switch)", "enum": ["siren"] },
+                    { "title": "Strobe (switch)", "enum": ["strobe"] },
+                    { "title": "Beeper (switch)", "enum": ["beeper"] },
+                    { "title": "Generic Switch", "enum": ["switch"] }
+                  ]
+                },
+                "name": {
+                  "title": "Name",
+                  "description": "Display name in HomeKit. Falls back to the ESPHome entity name.",
+                  "type": "string",
+                  "placeholder": "(E.g., Front Hall Motion)"
+                },
+                "invert": {
+                  "title": "Invert State",
+                  "description": "Invert the reported binary state (e.g. the firmware reports ON when the contact is closed).",
+                  "type": "boolean",
+                  "default": false
+                },
+                "audibleBeep": {
+                  "title": "Audible Beep on Change (Security System)",
+                  "description": "When the Security System is enabled, momentarily sound the beeper when this contact/motion sensor changes.",
+                  "type": "boolean",
+                  "default": false
+                },
+                "triggerableModes": {
+                  "title": "Triggerable Security Modes (Security System)",
+                  "description": "When the Security System is enabled, the armed modes in which this sensor may trigger the alarm.",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "oneOf": [
+                      { "title": "Home / Stay", "enum": ["0"] },
+                      { "title": "Away", "enum": ["1"] },
+                      { "title": "Night", "enum": ["2"] }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "advanced": {
       "title": "Advanced",
       "type": "object",
       "expandable": true,
       "expanded": false,
       "properties": {
-        "listenerIP": {
-          "title": "Listening IP (auto-assigned)",
-          "description": "The IPv4 network address to listen for zone state changes on. Useful if the system hosting Homebridge/HOOBS has multiple active network adapters and you want to choose which one to use.",
-          "type": "string",
-          "format": "ipv4",
-          "placeholder": "(E.g., 192.168.1.100)"
-        },
-        "listenerPort": {
-          "title": "Listening Port (auto-assigned)",
-          "description": "The network port to listen for zone state changes on.",
-          "type": "number",
-          "step": 1,
-          "minimum": 1000,
-          "maximum": 65535,
-          "placeholder": "(Between 1000 and 65535)"
-        },
-        "discoveryTimeout": {
-          "title": "Discovery Timeout (seconds) (optional)",
-          "description": "Provide a length of time in seconds (between 1 and 300) to allow this plugin to discover all of the Konnected Alarm Panels on the network.",
-          "type": "number",
-          "step": 1,
-          "minimum": 1,
-          "maximum": 30,
-          "placeholder": "(Default: 5)"
+        "securitySystem": {
+          "title": "Enable HomeKit Security System",
+          "description": "Expose a plugin-managed HomeKit Security System accessory with arming/disarming logic. When off, zones are exposed as plain sensors and actuators only.",
+          "type": "boolean",
+          "default": false
         },
         "entryDelaySettings": {
+          "title": "Entry Delay Settings",
           "type": "object",
-          "expandable": true,
-          "expanded": false,
           "properties": {
-            "": {
-              "description": "Configurable settings for when the security system has been violated while armed to \"Away\" mode.<br>By default the beeper will have a constant sound, but if you use the example values, it will produce a long tone once every second so you know how much time you have to disarm the security system.",
-              "type": "object"
-            },
             "delay": {
-              "title": "Delay (seconds) (optional)",
-              "description": "The entry delay before the security system is triggered and the siren zone is triggered.",
+              "title": "Entry Delay (seconds)",
+              "description": "Time after a triggering sensor changes before the alarm fires. 0 = instant.",
               "type": "number",
-              "step": 1,
               "minimum": 0,
-              "placeholder": "(Default: 30)"
-            },
-            "pulseDuration": {
-              "title": "Beeper Pulse Duration (milliseconds) (optional)",
-              "description": "How long the pulse is maintained in the on state for.",
-              "type": "number",
-              "step": 1,
-              "minimum": 1,
-              "placeholder": "(E.g., 950)"
-            },
-            "pulsePause": {
-              "title": "Beeper Pause Between Pulses (milliseconds) (optional, but required if Times to Repeat exists)",
-              "type": "number",
-              "step": 1,
-              "minimum": 1,
-              "placeholder": "(E.g., 50)"
-            },
-            "pulseRepeat": {
-              "title": "Beeper Times to Repeat (optional, but required if Pause Between Pulses exists)",
-              "description": "To repeat indefinitely, use -1 as the value.",
-              "type": "number",
-              "step": 1,
-              "minimum": -1,
-              "placeholder": "(E.g., -1)"
+              "maximum": 300,
+              "placeholder": "30"
             }
+          },
+          "condition": {
+            "functionBody": "return model.advanced && model.advanced.securitySystem === true;"
           }
         },
         "exitDelaySettings": {
+          "title": "Exit Delay Settings",
           "type": "object",
-          "expandable": true,
-          "expanded": false,
           "properties": {
-            "": {
-              "description": "Configurable settings for the delay used before the security system has been completely armed.<br>If you don't want a delay, set this to 0.",
-              "type": "object"
-            },
             "delay": {
-              "title": "Delay (seconds) (optional)",
-              "description": "The time used for the exit delay before the security system is completely armed.",
+              "title": "Exit Delay (seconds)",
+              "description": "Time after arming before the system becomes active. 0 = instant.",
               "type": "number",
-              "step": 1,
               "minimum": 0,
-              "placeholder": "(Default: 30)"
+              "maximum": 300,
+              "placeholder": "30"
             },
             "audibleBeeperModes": {
-              "title": "The following selected arming modes will have an audible beeper countdown (if delay is not zero):",
+              "title": "Audible Beeper Modes",
+              "description": "Armed modes that play an audible exit countdown on the beeper.",
               "type": "array",
-              "uniqueItems": true,
               "items": {
-                "title": "Mode",
                 "type": "string",
-                "enum": [
-                  "0",
-                  "2",
-                  "1"
-                ],
-                "enumNames": [
-                  "Home/Stay",
-                  "Night",
-                  "Away (Default)"
+                "oneOf": [
+                  { "title": "Home / Stay", "enum": ["0"] },
+                  { "title": "Away", "enum": ["1"] },
+                  { "title": "Night", "enum": ["2"] }
                 ]
-              },
-              "default": [
-                false,
-                false,
-                "1"
-              ]
-            }
-          }
-        }
-      }
-    },
-    "panels": {
-      "title": "Panels",
-      "description": "These are the individual Konnected Alarm Panel module boards.",
-      "type": "array",
-      "orderable": true,
-      "expandable": true,
-      "expanded": true,
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "title": "Panel Name",
-            "type": "string"
-          },
-          "uuid": {
-            "title": "UUID",
-            "type": "string",
-            "readonly": true
-          },
-          "ipAddress": {
-            "title": "IP Address (required but changeable)",
-            "type": "string",
-            "format": "ipv4"
-          },
-          "port": {
-            "title": "Port (required but changeable)",
-            "type": "number",
-            "step": 1,
-            "minimum": 1000,
-            "maximum": 65535
-          },
-          "blink": {
-            "title": "Blink panel LED when zones change/report their state.",
-            "type": "boolean",
-            "default": true
-          },
-          "zones": {
-            "title": "Zones",
-            "description": "Customize the names and types of your zones.<br><span class='primary-text'>You need to define your zones here to create sensor and actuator accessories in HomeKit.</span>",
-            "type": "array",
-            "maxItems": 15,
-            "expandable": true,
-            "expanded": false,
-            "uniqueItems": true,
-            "items": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "title": "Enabled",
-                  "type": "boolean"
-                },
-                "zoneNumber": {
-                  "title": "Zone",
-                  "type": "string",
-                  "oneOf": [{
-                      "title": "V1/V2 & Pro: 1",
-                      "enum": ["1"]
-                    },
-                    {
-                      "title": "V1/V2 & Pro: 2",
-                      "enum": ["2"]
-                    },
-                    {
-                      "title": "V1/V2 & Pro: 3",
-                      "enum": ["3"]
-                    },
-                    {
-                      "title": "V1/V2 & Pro: 4",
-                      "enum": ["4"]
-                    },
-                    {
-                      "title": "V1/V2 & Pro: 5",
-                      "enum": ["5"]
-                    },
-                    {
-                      "title": "V1/V2 & Pro: 6",
-                      "enum": ["6"]
-                    },
-                    {
-                      "title": "V1/V2 Only: Out or Alarm",
-                      "enum": ["out"]
-                    },
-                    {
-                      "title": "Pro Only: 7",
-                      "enum": ["7"]
-                    },
-                    {
-                      "title": "Pro Only: 8",
-                      "enum": ["8"]
-                    },
-                    {
-                      "title": "Pro Only: 9 (binary sensors only)",
-                      "enum": ["9"]
-                    },
-                    {
-                      "title": "Pro Only: 10 (binary sensors only)",
-                      "enum": ["10"]
-                    },
-                    {
-                      "title": "Pro Only: 11 (binary sensors only)",
-                      "enum": ["11"]
-                    },
-                    {
-                      "title": "Pro Only: 12 (binary sensors only)",
-                      "enum": ["12"]
-                    },
-                    {
-                      "title": "Pro Only: Alarm 1",
-                      "enum": ["alarm1"]
-                    },
-                    {
-                      "title": "Pro Only: Out1",
-                      "enum": ["out1"]
-                    },
-                    {
-                      "title": "Pro Only: Alarm 2 or Out2",
-                      "enum": ["alarm2_out2"]
-                    }
-                  ]
-                },
-                "zoneType": {
-                  "title": "Type",
-                  "type": "string",
-                  "oneOf": [{
-                      "title": "Sensor: Contact Sensor",
-                      "enum": ["contact"]
-                    },
-                    {
-                      "title": "Sensor: Motion Sensor",
-                      "enum": ["motion"]
-                    },
-                    {
-                      "title": "Sensor: Glass Break Sensor",
-                      "enum": ["glass"]
-                    },
-                    {
-                      "title": "Sensor: Tempurature Sensor (eg. DS18B20)",
-                      "enum": ["temperature"]
-                    },
-                    {
-                      "title": "Sensor: Temperature / Humidity Sensor (eg. DHT)",
-                      "enum": ["humidtemp"]
-                    },
-                    {
-                      "title": "Sensor: Water Leak / Rain Sensor",
-                      "enum": ["water"]
-                    },
-                    {
-                      "title": "Sensor: Smoke / CO Sensor",
-                      "enum": ["smoke"]
-                    },
-                    {
-                      "title": "Switch: Alarm Beeper Switch",
-                      "enum": ["beeper"]
-                    },
-                    {
-                      "title": "Switch: Alarm Siren Switch",
-                      "enum": ["siren"]
-                    },
-                    {
-                      "title": "Switch: Alarm Strobe Light Switch",
-                      "enum": ["strobe"]
-                    },
-                    {
-                      "title": "Switch: Generic Switch",
-                      "enum": ["switch"]
-                    }
-                  ]
-                },
-                "zoneLocation": {
-                  "title": "Location",
-                  "type": "string",
-                  "placeholder": "(E.g., Living Room)",
-                  "typeahead": {
-                    "source": [
-                      "Addition",
-                      "Atrium",
-                      "Attic",
-                      "Auditorium",
-                      "Back",
-                      "Backyard",
-                      "Balcony",
-                      "Banister",
-                      "Banquette",
-                      "Barn",
-                      "Basement",
-                      "Bathroom",
-                      "Bay Window",
-                      "Bedroom",
-                      "Boat House",
-                      "Boiler Room",
-                      "Boudoir",
-                      "Breakfast Nook",
-                      "Cabin",
-                      "Cabinet",
-                      "Ceiling",
-                      "Cellar",
-                      "Chapel",
-                      "Cloakroom",
-                      "Closet",
-                      "Common Room",
-                      "Computer Room",
-                      "Conference Room",
-                      "Conservatory",
-                      "Control Room",
-                      "Corridor",
-                      "Courtyard",
-                      "Crawlspace",
-                      "Cubby",
-                      "Dark Room",
-                      "Deck",
-                      "Den",
-                      "Dining Room",
-                      "Drawing Room",
-                      "Dressing Room",
-                      "Dungeon",
-                      "Electrical Room",
-                      "Entrance",
-                      "Entryway",
-                      "Equipment Room",
-                      "Family Room",
-                      "Fence",
-                      "First Floor",
-                      "Floor",
-                      "Formal Dining Room",
-                      "Formal Living Room",
-                      "Fourth Floor",
-                      "Foyer",
-                      "Front",
-                      "Front Yard",
-                      "Furnace Room",
-                      "Game Room",
-                      "Garage",
-                      "Garden",
-                      "Great Hall",
-                      "Great Room",
-                      "Greenhouse",
-                      "Grotto",
-                      "Guest Room",
-                      "Gym",
-                      "Hall",
-                      "Hallway",
-                      "Indoor",
-                      "Inglenook",
-                      "Inside",
-                      "Junk Room",
-                      "Keep",
-                      "Kitchen",
-                      "Kitchenette",
-                      "Larder",
-                      "Laundry Room",
-                      "Lenai",
-                      "Library",
-                      "Living Room",
-                      "Lobby",
-                      "Loft",
-                      "Lounge",
-                      "Machine Room",
-                      "Man Cave",
-                      "Master Bath",
-                      "Master Bedroom",
-                      "Master Closet",
-                      "Mechanical Closet",
-                      "Mechanical Room",
-                      "Media Closet",
-                      "Media Room",
-                      "Mezanine",
-                      "Mud Room",
-                      "Music Room",
-                      "Nook",
-                      "Nursery",
-                      "Office",
-                      "Outdoor",
-                      "Outside",
-                      "Outside",
-                      "Panic Room",
-                      "Pantry",
-                      "Parlour",
-                      "Partition",
-                      "Patio",
-                      "Pool",
-                      "Pool Room",
-                      "Porch",
-                      "Powder Room",
-                      "Pump Room",
-                      "Rec Room",
-                      "Recreation Room",
-                      "Rest Room",
-                      "Roof",
-                      "Root Cellar",
-                      "Rotunda",
-                      "Safe Room",
-                      "Salon",
-                      "Sauna",
-                      "Scullery",
-                      "Second Floor",
-                      "Server Room",
-                      "Server Closet",
-                      "Shed",
-                      "Shop",
-                      "Shower",
-                      "Showroom",
-                      "Side",
-                      "Side Yard",
-                      "Sitting Room",
-                      "Solarium",
-                      "Spandrel",
-                      "Spare room",
-                      "Staff Quarters",
-                      "Stairs",
-                      "Stairway",
-                      "State Room",
-                      "Storage Room",
-                      "Storm Cellar",
-                      "Studio",
-                      "Study",
-                      "Suite",
-                      "Sun Room",
-                      "Theatre Room",
-                      "Third Floor",
-                      "Throne Room",
-                      "Tree House",
-                      "Utility Room",
-                      "Veranda",
-                      "Vestibule",
-                      "Waiting Room",
-                      "Walk-In",
-                      "Walkway",
-                      "Wardrobe",
-                      "Well",
-                      "Wine Cellar",
-                      "Workshop",
-                      "Yard"
-                    ]
-                  }
-                },
-                "binarySensorSettings": {
-                  "title": "Binary Sensor Settings",
-                  "type": "object",
-                  "condition": {
-                    "functionBody": "try { return ['contact','motion','glass','water','smoke'].includes(model.panels[arrayIndices[0]].zones[arrayIndices[1]].zoneType) } catch (e) { return false }"
-                  },
-                  "expandable": true,
-                  "expanded": false,
-                  "properties": {
-                    "invert": {
-                      "title": "Invert the sensor zone state",
-                      "type": "boolean"
-                    },
-                    "audibleBeep": {
-                      "title": "This sensor should trigger the beeper when its state changes.",
-                      "description": "Uses the pulse settings for zone(s) configured as a beeper switch.",
-                      "type": "boolean"
-                    },
-                    "triggerableModes": {
-                      "title": "Triggerable Modes",
-                      "description": "Choose which modes (0 = Home/Stay, 1 = Away, 2 = Night) this sensor will trigger the security system alarm.<br>If \"Home\" and/or \"Night\" mode are deselected for all sensors and switches, then the HomeKit app will hide those two modes from the app's Security System accessory control.<br><br>NOTE: when setting up Konnected panels with most traditional security systems, the \"Home\" and/or \"Night\" modes don't operate bi-directionally and should be deselected for all sensors and switches.<br>",
-                      "type": "array",
-                      "uniqueItems": true,
-                      "items": {
-                        "title": "Mode",
-                        "type": "string",
-                        "enum": [
-                          "0",
-                          "2",
-                          "1"
-                        ],
-                        "enumNames": [
-                          "Home/Stay",
-                          "Night",
-                          "Away"
-                        ]
-                      }
-                    }
-                  }
-                },
-                "environmentalSensorSettings": {
-                  "title": "Environmental Sensor Settings",
-                  "type": "object",
-                  "condition": {
-                    "functionBody": "try { return ['humidtemp','temperature'].includes(model.panels[arrayIndices[0]].zones[arrayIndices[1]].zoneType) } catch (e) { return false }"
-                  },
-                  "expandable": true,
-                  "expanded": false,
-                  "properties": {
-                    "pollInterval": {
-                      "title": "Poll Interval (minutes) (optional)",
-                      "description": "Length of time between, in minutes (between 1 and 1440), that this sensor will report its value.",
-                      "placeholder": "(Default: 3)",
-                      "type": "number",
-                      "step": 1,
-                      "minimum": 1,
-                      "maximum": 1440
-                    }
-                  }
-                },
-                "switchSettings": {
-                  "title": "Switch Settings",
-                  "type": "object",
-                  "condition": {
-                    "functionBody": "try { return ['beeper','siren','strobe','switch'].includes(model.panels[arrayIndices[0]].zones[arrayIndices[1]].zoneType) } catch(e){return false}"
-                  },
-                  "expandable": true,
-                  "expanded": false,
-                  "properties": {
-                    "trigger": {
-                      "title": "Force Trigger State (optional)",
-                      "type": "string",
-                      "enum": [
-                        "high",
-                        "low"
-                      ],
-                      "x-schema-form": {
-                        "type": "radios",
-                        "titleMap": [
-                          {
-                            "value": "high",
-                            "name": "High (normal default)"
-                          },
-                          {
-                            "value": "low",
-                            "name": "Low"
-                          }
-                        ]
-                      }
-                    },
-                    "pulseDuration": {
-                      "title": "Pulse Duration (milliseconds) (optional)",
-                      "description": "How long the pulse is maintained in the on state for.",
-                      "type": "number",
-                      "step": 1,
-                      "minimum": 1,
-                      "placeholder": "(E.g., 100)"
-                    },
-                    "pulsePause": {
-                      "title": "Pause Between Pulses (milliseconds) (optional, but required if Times to Repeat exists)",
-                      "type": "number",
-                      "step": 1,
-                      "minimum": 1,
-                      "placeholder": "(E.g., 100)"
-                    },
-                    "pulseRepeat": {
-                      "title": "Times to Repeat (optional, but required if Pause Between Pulses exists)",
-                      "description": "To repeat indefinitely, use -1 as the value.",
-                      "type": "number",
-                      "step": 1,
-                      "minimum": -1,
-                      "placeholder": "(E.g., 3)"
-                    },
-                    "triggerableModes": {
-                      "title": "⚠️ Triggerable Modes",
-                      "description": "⚠️ EXPERIMENTAL FEATURE:<br>Choose which modes this switch sensor will trigger the security system alarm.<br>This may have unexpected consequences, it is best to leave these items unchecked.<br><br>If \"Home\" and/or \"Night\" mode are deselected for all sensors and switches, then the HomeKit app will hide those two modes from the app's Security System accessory control.<br>NOTE: when setting up Konnected panels with most traditional security systems, the \"Home\" and/or \"Night\" modes don't operate bi-directionally and should be deselected for all sensors and switches.",
-                      "type": "array",
-                      "uniqueItems": true,
-                      "items": {
-                        "title": "Mode",
-                        "type": "string",
-                        "enum": [
-                          "0",
-                          "2",
-                          "1"
-                        ],
-                        "enumNames": [
-                          "Home",
-                          "Night",
-                          "Away"
-                        ]
-                      }
-                    }
-                  }
-                }
               }
             }
+          },
+          "condition": {
+            "functionBody": "return model.advanced && model.advanced.securitySystem === true;"
           }
         }
       }
