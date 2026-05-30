@@ -13,17 +13,18 @@ type AccessoryType = keyof typeof TYPES_TO_ACCESSORIES;
  *
  * Konnected Homebridge platform for Konnected's ESPHome-based Alarm Panel Pro.
  *
- * Transport (this fork): each panel runs ESPHome's web server. We subscribe to
- * its Server-Sent Events stream for zone state and use its REST API to actuate
- * switches — replacing the classic Konnected SSDP discovery, /settings
- * provisioning, and inbound listener model.
+ * Transport (this fork): each panel speaks ESPHome — either the web server
+ * (REST + SSE, default) or the native API (port 6053), chosen per panel and
+ * abstracted behind IEspHomeClient. This replaces the classic Konnected SSDP
+ * discovery, /settings provisioning, and inbound listener model.
  *
- * Startup:
- * - parse the user config (panels[] of host + zones[])
+ * Startup (see startup()):
+ * - parse the user config (panels[] of host/transport + zones[])
  * - restore cached accessories from disk
- * - build/update HomeKit accessories from the configured zones
+ * - connect each panel, capturing its initial state burst (for device_class
+ *   auto-typing of zones that omit `type`)
+ * - build/update HomeKit accessories and seed their current state
  * - (optionally) register the plugin-managed Security System
- * - open an ESPHome event stream per panel and reflect state into HomeKit
  */
 export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -86,12 +87,7 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
 
     this.api.on('didFinishLaunching', () => {
       this.log.debug('Executed didFinishLaunching callback. Accessories retrieved from cache...');
-
-      this.configurePanelZones();
-      if (this.securitySystemEnabled) {
-        this.registerSecuritySystem();
-      }
-      this.connectPanels();
+      void this.startup();
     });
 
     const cleanup = () => {
@@ -128,104 +124,165 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
     return { domain: entityId.slice(0, dash), objectId: entityId.slice(dash + 1) };
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   /**
-   * Build (and reconcile) HomeKit accessories from the configured panel zones.
+   * Infer a HomeKit accessory type for a zone whose config omits `type`, using the
+   * ESPHome entity domain and (when available, i.e. the native API) its device_class.
+   * Returns null when no sensible mapping exists (the zone is then skipped with a warning).
+   */
+  private inferType(domain: string, deviceClass?: string): string | null {
+    const dc = (deviceClass || '').toLowerCase();
+    if (domain === 'binary_sensor') {
+      if (['motion', 'occupancy', 'presence'].includes(dc)) {
+        return 'motion';
+      }
+      if (dc === 'smoke') {
+        return 'smoke';
+      }
+      if (dc === 'moisture') {
+        return 'water';
+      }
+      // window / door / garage_door / opening / tamper / vibration / (none) -> contact
+      return 'contact';
+    }
+    if (domain === 'switch') {
+      return 'switch';
+    }
+    if (domain === 'sensor') {
+      return dc === 'temperature' ? 'temperature' : null;
+    }
+    // button, text_sensor, light, etc. are not auto-exposed
+    return null;
+  }
+
+  /**
+   * Orchestrate startup: connect each panel (capturing its initial state burst for
+   * type inference), build the accessories, then register the Security System.
+   */
+  private async startup() {
+    await this.connectPanels();
+    if (this.securitySystemEnabled) {
+      this.registerSecuritySystem();
+    }
+  }
+
+  /**
+   * Build (and reconcile) HomeKit accessories for one panel's configured zones.
+   * `snapshot` is the panel's initial entity-state burst, used to infer types for
+   * zones that omit `type` (device_class via the native API) and to seed names.
    * Replaces the classic provisioning-driven configureZones().
    */
-  configurePanelZones() {
-    const panels: EspHomePanel[] = Array.isArray(this.config.panels) ? this.config.panels : [];
+  buildPanelZones(panel: EspHomePanel, snapshot: Map<string, EspHomeEntityState>) {
+    const panelId = this.panelIdFor(panel);
+    const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
+    const zones: EspHomeZone[] = Array.isArray(panel.zones) ? panel.zones : [];
 
-    panels.forEach((panel) => {
-      if (!panel.host) {
-        this.log.warn('Skipping a panel in config with no "host" defined.');
+    const panelRuntimeZones: RuntimeCacheInterface[] = [];
+    const retainedAccessories: PlatformAccessory[] = [];
+    const seenUUIDs: string[] = [];
+
+    zones.forEach((zone) => {
+      if (zone.enabled === false) {
+        return;
+      }
+      if (!zone.entityId) {
+        this.log.warn(`[${panelLabel}] Skipping a zone with no "entityId".`);
         return;
       }
 
-      const panelId = this.panelIdFor(panel);
-      const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
-      const zones: EspHomeZone[] = Array.isArray(panel.zones) ? panel.zones : [];
+      const { domain, objectId } = this.splitEntityId(zone.entityId);
+      const snap = snapshot.get(zone.entityId);
 
-      const panelRuntimeZones: RuntimeCacheInterface[] = [];
-      const retainedAccessories: PlatformAccessory[] = [];
-      const seenUUIDs: string[] = [];
-
-      zones.forEach((zone) => {
-        if (zone.enabled === false) {
-          return;
-        }
-        if (!zone.entityId) {
-          this.log.warn(`[${panelLabel}] Skipping a zone with no "entityId".`);
-          return;
-        }
-        const accType = TYPES_TO_ACCESSORIES[zone.type as AccessoryType];
-        if (!accType) {
+      // resolve the HomeKit type: explicit config wins, otherwise infer it
+      let type = zone.type;
+      if (!type) {
+        const inferred = this.inferType(domain, snap?.deviceClass);
+        if (!inferred) {
           this.log.warn(
-            `[${panelLabel}] Zone '${zone.entityId}' has an unknown type '${zone.type}'. ` +
-              `Valid types: ${Object.keys(TYPES_TO_ACCESSORIES).join(', ')}.`
+            `[${panelLabel}] Zone '${zone.entityId}' has no 'type' and one couldn't be inferred ` +
+              `(domain '${domain}'${snap?.deviceClass ? `, device_class '${snap.deviceClass}'` : ''}). ` +
+              'Set a type explicitly.'
           );
           return;
         }
+        type = inferred;
+        this.log.info(
+          `[${panelLabel}] Auto-typed '${zone.entityId}' as '${type}'` +
+            (snap?.deviceClass ? ` (device_class: ${snap.deviceClass}).` : ` (from domain '${domain}').`)
+        );
+      }
 
-        const { domain, objectId } = this.splitEntityId(zone.entityId);
-        const zoneUUID = this.api.hap.uuid.generate(panelId + '-' + zone.entityId);
+      const accType = TYPES_TO_ACCESSORIES[type as AccessoryType];
+      if (!accType) {
+        this.log.warn(
+          `[${panelLabel}] Zone '${zone.entityId}' has an unknown type '${type}'. ` +
+            `Valid types: ${Object.keys(TYPES_TO_ACCESSORIES).join(', ')}.`
+        );
+        return;
+      }
 
-        if (seenUUIDs.includes(zoneUUID)) {
-          this.log.warn(`[${panelLabel}] Duplicate zone entityId '${zone.entityId}' in config; ignoring the duplicate.`);
-          return;
-        }
-        seenUUIDs.push(zoneUUID);
+      const zoneUUID = this.api.hap.uuid.generate(panelId + '-' + zone.entityId);
 
-        const displayName = zone.name && zone.name !== '' ? zone.name : accType[1]!;
+      if (seenUUIDs.includes(zoneUUID)) {
+        this.log.warn(`[${panelLabel}] Duplicate zone entityId '${zone.entityId}' in config; ignoring the duplicate.`);
+        return;
+      }
+      seenUUIDs.push(zoneUUID);
 
-        const zoneObject: RuntimeCacheInterface = {
-          UUID: zoneUUID,
-          displayName,
-          enabled: true, // zone.enabled === false already returned above
-          type: zone.type,
-          model: (panelLabel ? panelLabel + ' ' : '') + accType[1]!,
-          serialNumber: panelId + '-' + zone.entityId,
-          panelId,
-          entityId: zone.entityId,
-          entityDomain: domain,
-          entityObjectId: objectId,
-        };
-        if (zone.invert) {
-          zoneObject.invert = zone.invert;
-        }
-        if (zone.audibleBeep) {
-          zoneObject.audibleBeep = zone.audibleBeep;
-        }
-        if (zone.triggerableModes) {
-          zoneObject.triggerableModes = zone.triggerableModes;
-        }
+      const displayName =
+        zone.name && zone.name !== '' ? zone.name : snap?.name && snap.name !== '' ? snap.name : accType[1]!;
 
-        // carry forward previous state from Homebridge's cached accessory
-        this.accessories.forEach((accessory) => {
-          if (accessory.UUID === zoneUUID) {
-            if (typeof accessory.context.device.state !== 'undefined') {
-              zoneObject.state = accessory.context.device.state;
-            }
-            if (typeof accessory.context.device.humi !== 'undefined') {
-              zoneObject.humi = accessory.context.device.humi;
-            }
-            if (typeof accessory.context.device.temp !== 'undefined') {
-              zoneObject.temp = accessory.context.device.temp;
-            }
+      const zoneObject: RuntimeCacheInterface = {
+        UUID: zoneUUID,
+        displayName,
+        enabled: true, // zone.enabled === false already returned above
+        type,
+        model: (panelLabel ? panelLabel + ' ' : '') + accType[1]!,
+        serialNumber: panelId + '-' + zone.entityId,
+        panelId,
+        entityId: zone.entityId,
+        entityDomain: domain,
+        entityObjectId: objectId,
+      };
+      if (zone.invert) {
+        zoneObject.invert = zone.invert;
+      }
+      if (zone.audibleBeep) {
+        zoneObject.audibleBeep = zone.audibleBeep;
+      }
+      if (zone.triggerableModes) {
+        zoneObject.triggerableModes = zone.triggerableModes;
+      }
+
+      // carry forward previous state from Homebridge's cached accessory
+      this.accessories.forEach((accessory) => {
+        if (accessory.UUID === zoneUUID) {
+          if (typeof accessory.context.device.state !== 'undefined') {
+            zoneObject.state = accessory.context.device.state;
           }
-        });
-
-        this.accessoriesRuntimeCache.push(zoneObject);
-        this.entityToZoneUUID.set(panelId + '|' + zone.entityId, zoneUUID);
-        panelRuntimeZones.push(zoneObject);
-
-        const retained = this.accessories.find((accessory) => accessory.UUID === zoneUUID);
-        if (typeof retained !== 'undefined') {
-          retainedAccessories.push(retained);
+          if (typeof accessory.context.device.humi !== 'undefined') {
+            zoneObject.humi = accessory.context.device.humi;
+          }
+          if (typeof accessory.context.device.temp !== 'undefined') {
+            zoneObject.temp = accessory.context.device.temp;
+          }
         }
       });
 
-      this.registerAccessories(panelId, panelRuntimeZones, retainedAccessories);
+      this.accessoriesRuntimeCache.push(zoneObject);
+      this.entityToZoneUUID.set(panelId + '|' + zone.entityId, zoneUUID);
+      panelRuntimeZones.push(zoneObject);
+
+      const retained = this.accessories.find((accessory) => accessory.UUID === zoneUUID);
+      if (typeof retained !== 'undefined') {
+        retainedAccessories.push(retained);
+      }
     });
+
+    this.registerAccessories(panelId, panelRuntimeZones, retainedAccessories);
   }
 
   /**
@@ -317,49 +374,69 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   }
 
   /**
-   * Open an ESPHome connection for each configured panel and reflect state into HomeKit.
+   * Open an ESPHome connection for every configured panel and build its accessories.
    */
-  connectPanels() {
+  async connectPanels() {
     const panels: EspHomePanel[] = Array.isArray(this.config.panels) ? this.config.panels : [];
+    const active = panels.filter((p) => p.host);
 
-    if (panels.filter((p) => p.host).length === 0) {
+    if (active.length === 0) {
       this.log.warn('No panels configured. Add panels[] with a "host" and "zones" to your config.');
       return;
     }
 
-    panels.forEach((panel) => {
-      if (!panel.host) {
-        return;
-      }
-      const panelId = this.panelIdFor(panel);
-      const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
-
-      if (this.clients.has(panelId)) {
-        return;
-      }
-
-      createEspHomeClient(panel, this.log, panelLabel)
-        .then((client) => {
-          if (this.stopping) {
-            client.stop();
-            return;
-          }
-          client.on('state', (entity: EspHomeEntityState) => this.handleEntityState(panelId, panelLabel, entity));
-          client.on('disconnect', () => this.markPanelEntitiesNoResponse(panelId));
-          this.clients.set(panelId, client);
-          this.log.debug(`[${panelLabel}] using ESPHome '${panelTransport(panel)}' transport`);
-          client.start();
+    await Promise.all(
+      active.map((panel) =>
+        this.connectPanel(panel).catch((error: Error) => {
+          const label = panel.name && panel.name !== '' ? panel.name : panel.host;
+          this.log.error(`[${label}] failed to initialize: ${error.message}`);
         })
-        .catch((error: Error) => {
-          this.log.error(`[${panelLabel}] failed to initialize transport: ${error.message}`);
-        });
-    });
+      )
+    );
+  }
+
+  /**
+   * Connect a single panel, capture its initial state burst (for type inference and
+   * device_class), build its accessories, then route ongoing state changes.
+   */
+  private async connectPanel(panel: EspHomePanel) {
+    const panelId = this.panelIdFor(panel);
+    const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
+
+    if (this.clients.has(panelId)) {
+      return;
+    }
+
+    const client = await createEspHomeClient(panel, this.log, panelLabel);
+    if (this.stopping) {
+      client.stop();
+      return;
+    }
+    this.clients.set(panelId, client);
+    this.log.debug(`[${panelLabel}] using ESPHome '${panelTransport(panel)}' transport`);
+
+    // capture the initial state burst (device_class on the native transport) for type
+    // inference; this collector only fills the snapshot — it does not touch HomeKit
+    const snapshot = new Map<string, EspHomeEntityState>();
+    const collector = (entity: EspHomeEntityState) => snapshot.set(entity.id, entity);
+    client.on('state', collector);
+    client.on('disconnect', () => this.markPanelEntitiesNoResponse(panelId));
+    client.start();
+    await this.sleep(3000); // allow connect + the full entity burst
+    client.off('state', collector);
+
+    // build this panel's accessories using the snapshot, then route ongoing state
+    this.buildPanelZones(panel, snapshot);
+    client.on('state', (entity: EspHomeEntityState) => this.handleEntityState(panelId, panelLabel, entity));
+
+    // seed the just-built accessories with the values we already captured
+    snapshot.forEach((entity) => this.handleEntityState(panelId, panelLabel, entity, true));
   }
 
   /**
    * Reflect an ESPHome entity state change into the matching HomeKit accessory.
    */
-  handleEntityState(panelId: string, panelLabel: string, entity: EspHomeEntityState) {
+  handleEntityState(panelId: string, panelLabel: string, entity: EspHomeEntityState, seed = false) {
     const zoneUUID = this.entityToZoneUUID.get(panelId + '|' + entity.id);
     if (!zoneUUID) {
       // diagnostics-only or simply unconfigured entity — log once to aid config
@@ -419,8 +496,9 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
         break;
     }
 
-    // Security System feature (only when enabled): let sensors trigger the alarm / audible beeps
-    if (this.securitySystemEnabled && ZONE_TYPES.sensors.includes(runtimeCacheAccessory.type)) {
+    // Security System feature (only when enabled): let sensors trigger the alarm / audible beeps.
+    // Skipped while seeding initial state so startup can't fire the alarm.
+    if (!seed && this.securitySystemEnabled && ZONE_TYPES.sensors.includes(runtimeCacheAccessory.type)) {
       const defaultStateValue = runtimeCacheAccessory.invert === true ? 1 : 0;
       this.processSensorAccessoryActions(runtimeCacheAccessory, defaultStateValue, stateValue);
     }

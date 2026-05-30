@@ -34,6 +34,7 @@ export class EspHomeNativeClient extends EventEmitter implements IEspHomeClient 
   private readonly host: string;
   private readonly port: number;
   // the native-api library ships no types; treat the client as untyped
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client: any = null;
   private stopped = false;
   // `${domain}|${objectId}` -> native entity instance

@@ -96,9 +96,8 @@
                 },
                 "type": {
                   "title": "HomeKit Accessory Type",
+                  "description": "Leave blank to auto-detect from the entity's device_class (Native API transport only). Set explicitly for the Web Server transport or to override.",
                   "type": "string",
-                  "required": true,
-                  "default": "contact",
                   "oneOf": [
                     { "title": "Contact Sensor", "enum": ["contact"] },
                     { "title": "Motion Sensor", "enum": ["motion"] },

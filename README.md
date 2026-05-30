@@ -24,7 +24,7 @@
 > Each panel is addressed directly by host. Two ESPHome transports are supported, selectable per panel:
 >
 > - **Web Server (default)** — subscribes to the `GET /events` Server-Sent Events stream for live state and uses the REST API (`POST /<domain>/<object_id>/<action>`) to actuate. Zero setup.
-> - **Native API (`transport: "native"`, port 6053)** — uses ESPHome's protobuf API. More efficient, exposes `device_class` metadata, supports an encryption key. Set `encryptionKey` (or `password`) if your firmware enables it.
+> - **Native API (`transport: "native"`, port 6053)** — uses ESPHome's protobuf API. More efficient, exposes `device_class` metadata, supports an encryption key. Set `encryptionKey` (or `password`) if your firmware enables it. **Bonus:** omit a zone's `type` and it's auto-detected from the entity's `device_class` (e.g. `window`/`door` → contact, `motion` → motion, `smoke` → smoke, `moisture` → water).
 >
 > **Status:** zones expose as HomeKit sensors and switches. The plugin-managed HomeKit Security System is opt-in via `advanced.securitySystem` (off by default). See [`DEV.md`](DEV.md) for the local dev setup and architecture.
 

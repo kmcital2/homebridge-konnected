@@ -20,6 +20,9 @@ targets instead:
     `device_class`. Optional `encryptionKey`/`password`.
   No SSDP, no provisioning — the zones already live in the firmware build. Classic
   Konnected firmware is intentionally **not** supported (use upstream for that).
+- **Auto-typing:** on startup each panel's initial state burst is captured before
+  accessories are built; a zone that omits `type` is auto-typed from the entity's
+  `device_class` (native API only — the web server's SSE doesn't expose it).
 - **Config model:** each panel has a `host` (+ stable `id`) and a list of
   `zones`, each mapping an ESPHome `entityId` (e.g. `binary_sensor-front_hall_motion`)
   to a HomeKit `type` (`contact`/`motion`/`smoke`/`water`/`siren`/`switch`/…),
