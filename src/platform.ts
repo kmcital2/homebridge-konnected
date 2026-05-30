@@ -48,8 +48,10 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
   private entryTriggerDelayTimerHandle;
   private exitTriggerDelay: number;
   private exitTriggerDelayTimerHandle1;
-  private exitTriggerDelayTimerHandle2;
-  private exitTriggerDelayTimerHandle3;
+  // plugin-side beeper countdown (ESPHome web_server switches lack momentary-pulse params,
+  // so we pulse the beeper from here instead of delegating timing to the panel)
+  private beeperCountdownInterval;
+  private beeperCountdownStopHandle;
 
   // ESPHome web-server clients, keyed by panel id
   private clients: Map<string, EspHomeClient> = new Map();
@@ -456,16 +458,16 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
       accessory.triggerableModes?.includes(String(securitySystemAccessory?.context.device.state)) &&
       typeof this.entryTriggerDelayTimerHandle === 'undefined'
     ) {
-      // accessory should trigger the security system; sound entry-delay beeps
-      this.accessoriesRuntimeCache.forEach((beeperAccessory) => {
-        if (beeperAccessory.type === 'beeper') {
-          this.actuateAccessory(beeperAccessory.UUID, true, null);
-        }
-      });
+      // accessory should trigger the security system; sound an entry-delay countdown then fire
+      this.log.info(
+        `[${accessory.displayName}] tripped while armed; alarm will trigger in ${Math.round(this.entryTriggerDelay / 1000)}s`
+      );
+      this.startBeeperCountdown(this.entryTriggerDelay);
       this.entryTriggerDelayTimerHandle = setTimeout(() => {
         this.controlSecuritySystem(4);
       }, this.entryTriggerDelay);
     } else if (['contact', 'motion'].includes(accessory.type) && accessory.audibleBeep) {
+      // not arming-relevant — just a single courtesy beep on change
       this.accessoriesRuntimeCache.forEach((beeperAccessory) => {
         if (beeperAccessory.type === 'beeper') {
           this.actuateAccessory(beeperAccessory.UUID, true, null);
@@ -521,60 +523,38 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
    * @param value number  0: home, 1: away, 2: night, 3: disarmed, 4: triggered.
    */
   controlSecuritySystem(value: number) {
-    const duration = 100;
-    const pause = 1000 - duration;
-    const minDefault = 10000;
-
     clearTimeout(this.exitTriggerDelayTimerHandle1);
-    clearTimeout(this.exitTriggerDelayTimerHandle2);
-    clearTimeout(this.exitTriggerDelayTimerHandle3);
     delete this.exitTriggerDelayTimerHandle1;
-    delete this.exitTriggerDelayTimerHandle2;
-    delete this.exitTriggerDelayTimerHandle3;
+    this.stopBeeperCountdown();
+
+    const securityService = this.konnectedPlatformAccessories[this.securitySystemUUID]?.service;
+    if (!securityService) {
+      this.log.warn('controlSecuritySystem called but the Security System accessory is not registered.');
+      return;
+    }
 
     if (value < 3) {
-      this.konnectedPlatformAccessories[this.securitySystemUUID].service.updateCharacteristic(
-        this.Characteristic.SecuritySystemTargetState,
-        value
-      );
+      // arming to home (0), away (1) or night (2)
+      securityService.updateCharacteristic(this.Characteristic.SecuritySystemTargetState, value);
 
-      this.accessoriesRuntimeCache.forEach((rca) => {
-        if (rca.type === 'beeper') {
-          this.actuateAccessory(rca.UUID, false, null);
-        }
-      });
+      const audibleModes = this.config.advanced?.exitDelaySettings?.audibleBeeperModes;
+      const audible =
+        (typeof audibleModes !== 'undefined' && audibleModes.includes(String(value))) ||
+        (typeof audibleModes === 'undefined' && value === 1);
 
-      if (
-        (typeof this.config.advanced?.exitDelaySettings?.audibleBeeperModes !== 'undefined' &&
-          this.config.advanced?.exitDelaySettings?.audibleBeeperModes.includes(String(value))) ||
-        (typeof this.config.advanced?.exitDelaySettings?.audibleBeeperModes === 'undefined' && value === 1)
-      ) {
-        this.accessoriesRuntimeCache.forEach((rca) => {
-          if (rca.type === 'beeper' && this.exitTriggerDelay > 1000) {
-            this.actuateAccessory(rca.UUID, true, null);
-          }
-        });
+      if (audible && this.exitTriggerDelay > 1000) {
+        // sound an audible exit countdown, then arm
+        this.startBeeperCountdown(this.exitTriggerDelay);
         this.exitTriggerDelayTimerHandle1 = setTimeout(() => {
-          this.konnectedPlatformAccessories[this.securitySystemUUID].service.updateCharacteristic(
-            this.Characteristic.SecuritySystemCurrentState,
-            value
-          );
+          this.stopBeeperCountdown();
+          securityService.updateCharacteristic(this.Characteristic.SecuritySystemCurrentState, value);
         }, this.exitTriggerDelay);
       } else {
-        this.konnectedPlatformAccessories[this.securitySystemUUID].service.updateCharacteristic(
-          this.Characteristic.SecuritySystemCurrentState,
-          value
-        );
+        securityService.updateCharacteristic(this.Characteristic.SecuritySystemCurrentState, value);
       }
-      // suppress unused-variable lint for reserved pulse constants
-      void duration;
-      void pause;
-      void minDefault;
     } else {
-      this.konnectedPlatformAccessories[this.securitySystemUUID].service.updateCharacteristic(
-        this.Characteristic.SecuritySystemCurrentState,
-        value
-      );
+      // disarmed (3) or triggered (4)
+      securityService.updateCharacteristic(this.Characteristic.SecuritySystemCurrentState, value);
     }
 
     this.accessories.find((accessory) => {
@@ -584,6 +564,7 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
     });
 
     if (value === 3) {
+      // disarmed — cancel any pending trigger and silence all actuators
       clearTimeout(this.entryTriggerDelayTimerHandle);
       delete this.entryTriggerDelayTimerHandle;
       this.accessoriesRuntimeCache.forEach((rca) => {
@@ -594,6 +575,7 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
     }
 
     if (value === 4) {
+      // triggered — silence the beeper, sound sirens/strobes
       this.accessoriesRuntimeCache.forEach((rca) => {
         if (rca.type === 'beeper') {
           this.actuateAccessory(rca.UUID, false, null);
@@ -603,5 +585,41 @@ export class KonnectedHomebridgePlatform implements DynamicPlatformPlugin {
         }
       });
     }
+  }
+
+  /**
+   * Sound an audible countdown on all beeper zones for `durationMs`, pulsing
+   * roughly once per second. ESPHome beepers are typically `button` entities
+   * (one beep per press) or simple switches; we drive the cadence here rather
+   * than relying on the panel's (absent) momentary-pulse parameters.
+   */
+  startBeeperCountdown(durationMs: number) {
+    this.stopBeeperCountdown();
+    const beepers = this.accessoriesRuntimeCache.filter((rca) => rca.type === 'beeper');
+    if (beepers.length === 0) {
+      return;
+    }
+    const beep = () => beepers.forEach((b) => this.actuateAccessory(b.UUID, true, null));
+    beep();
+    this.beeperCountdownInterval = setInterval(beep, 1000);
+    this.beeperCountdownStopHandle = setTimeout(() => this.stopBeeperCountdown(), durationMs);
+  }
+
+  /** Stop any in-progress beeper countdown and silence switch-style beepers. */
+  stopBeeperCountdown() {
+    if (this.beeperCountdownInterval) {
+      clearInterval(this.beeperCountdownInterval);
+      this.beeperCountdownInterval = undefined;
+    }
+    if (this.beeperCountdownStopHandle) {
+      clearTimeout(this.beeperCountdownStopHandle);
+      this.beeperCountdownStopHandle = undefined;
+    }
+    // switch-style beepers latch on; make sure they end up off
+    this.accessoriesRuntimeCache.forEach((rca) => {
+      if (rca.type === 'beeper' && rca.entityDomain !== 'button') {
+        this.actuateAccessory(rca.UUID, false, null);
+      }
+    });
   }
 }

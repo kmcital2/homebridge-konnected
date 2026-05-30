@@ -20,8 +20,13 @@ targets instead:
   to a HomeKit `type` (`contact`/`motion`/`smoke`/`water`/`siren`/`switch`/…),
   a display `name`, and optional `invert`. See `.dev-homebridge/config.json`.
 - **Status:** Milestone 1 (zones as plain sensors + siren as a switch) is
-  working. The HomeKit Security System (`advanced.securitySystem`) is off by
-  default and is Milestone 2.
+  working. Milestone 2 (the plugin-managed HomeKit Security System) is
+  implemented and opt-in via `advanced.securitySystem: true` — arming/disarming,
+  entry/exit delays, per-zone `triggerableModes`, and siren actuation. Because
+  ESPHome web-server switches don't accept the panel's momentary-pulse params,
+  the entry/exit beeper countdown is pulsed plugin-side (best with a `button`
+  beeper such as `button-beep-beep`). Live arm/trigger testing will sound the
+  siren — verify deliberately.
 
 ## Layout
 
