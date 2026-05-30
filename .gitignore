@@ -1,5 +1,6 @@
-# Ignore compiled code
-dist
+# Compiled output (dist/) is committed on purpose so the plugin can be installed
+# directly from git (npm i -g <user>/homebridge-konnected#branch) without a build
+# step. Rebuild with `npm run build` and commit dist/ after changing src/.
 
 # ------------- Defaults ------------- #
 
@@ -90,7 +91,6 @@ typings/
 
 # Nuxt.js build / generate output
 .nuxt
-dist
 
 # Gatsby files
 .cache/

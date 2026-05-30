@@ -23,7 +23,6 @@
     "preinstall": "npm list -g homebridge || npm install -g homebridge",
     "lint": "eslint src/**.ts",
     "build": "rimraf ./dist && tsc",
-    "prepare": "npm run build",
     "dev": "npm run build && homebridge -D -I -U ./.dev-homebridge -P .",
     "watch": "nodemon",
     "debug": "npm run build && npm list -g homebridge-konnected || npm link && nodemon --exitcrash",
