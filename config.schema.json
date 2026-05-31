@@ -74,6 +74,12 @@
               "functionBody": "return model.panels && model.panels[arrayIndices[0]] && model.panels[arrayIndices[0]].transport === 'native';"
             }
           },
+          "autoDiscover": {
+            "title": "Auto-discover zones",
+            "description": "Automatically expose all real sensors/switches from the panel (best on the Native API transport, which provides device_class for accurate typing). Zones below are layered on top as overrides. Turn off to use only the explicit zones.",
+            "type": "boolean",
+            "default": true
+          },
           "exclude": {
             "title": "Exclude (auto-discovery)",
             "description": "entityIds to skip when zones are auto-discovered (for stray entities that aren't real zones).",
@@ -81,8 +87,8 @@
             "items": { "type": "string", "placeholder": "(E.g., binary_sensor-test)" }
           },
           "zones": {
-            "title": "Zones (optional — omit to auto-discover)",
-            "description": "Leave empty to auto-discover all real sensors/switches from the panel (best on the Native API transport, which provides device_class for accurate typing). Add zones only to rename, retype, invert, set alarm behavior, or hand-pick.",
+            "title": "Zone overrides (optional)",
+            "description": "Layered on top of auto-discovery and matched by entityId. Add an entry only to rename, retype, invert, change alarm behavior, hand-pick, or set enabled:false to drop a discovered zone. Unset fields keep their auto-discovered/default values.",
             "type": "array",
             "items": {
               "type": "object",
@@ -167,6 +173,22 @@
           "description": "Expose a plugin-managed HomeKit Security System accessory with arming/disarming logic. When off, zones are exposed as plain sensors and actuators only.",
           "type": "boolean",
           "default": false
+        },
+        "defaultTriggerableModes": {
+          "title": "Default Triggerable Modes",
+          "description": "Armed modes every sensor zone trips the alarm in by default (override per-zone; set a zone's modes to none to disable it). Defaults to Away.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "oneOf": [
+              { "title": "Home / Stay", "enum": ["0"] },
+              { "title": "Away", "enum": ["1"] },
+              { "title": "Night", "enum": ["2"] }
+            ]
+          },
+          "condition": {
+            "functionBody": "return model.advanced && model.advanced.securitySystem === true;"
+          }
         },
         "entryDelaySettings": {
           "title": "Entry Delay Settings",

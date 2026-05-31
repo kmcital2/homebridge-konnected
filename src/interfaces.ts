@@ -11,6 +11,12 @@ export interface ConfigPlatformInterface extends PlatformConfig {
   advanced?: {
     /** Enable the plugin-managed HomeKit Security System accessory + arming logic. */
     securitySystem?: boolean;
+    /**
+     * Default armed modes a sensor zone triggers the alarm in, applied to every zone
+     * unless overridden per-zone. '0'=Home/Stay, '1'=Away, '2'=Night. Defaults to ['1'].
+     * Set a zone's triggerableModes to [] to make it non-triggering.
+     */
+    defaultTriggerableModes?: string[];
     entryDelaySettings?: {
       delay?: number;
       pulseDuration?: number;
@@ -41,11 +47,13 @@ export interface EspHomePanel {
   encryptionKey?: string;
   /** Native API legacy password, if used instead of encryption. */
   password?: string;
+  /** Set false to disable auto-discovery and use only the explicit `zones` below. Default true. */
+  autoDiscover?: boolean;
   /**
-   * Explicit zone list. When omitted (or empty), zones are auto-discovered from the
-   * panel: every normal-category binary_sensor/switch is exposed, auto-typed from
-   * device_class and named from the firmware (diagnostic/config entities are skipped).
-   * Provide this only to rename, retype, invert, set alarm behavior, or hand-pick zones.
+   * Zone overrides, layered on top of auto-discovery and matched by `entityId`. Each entry
+   * customizes a discovered zone (rename, retype, invert, alarm behavior) or adds an
+   * explicit one; set `enabled: false` to drop a discovered zone. Fields left unset keep
+   * their auto-discovered/default values.
    */
   zones?: EspHomeZone[];
   /** entityIds to skip during auto-discovery (for stray entities that aren't real zones). */

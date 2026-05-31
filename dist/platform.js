@@ -36,6 +36,8 @@ export class KonnectedHomebridgePlatform {
     // security system UUID (one security system per homebridge instance)
     securitySystemUUID;
     securitySystemEnabled;
+    // default armed modes a sensor zone triggers in, unless overridden per-zone
+    defaultTriggerableModes;
     // entry/exit delay defaults (Security System feature)
     entryTriggerDelay;
     entryTriggerDelayTimerHandle;
@@ -62,6 +64,9 @@ export class KonnectedHomebridgePlatform {
         this.Accessory = this.api.platformAccessory;
         this.securitySystemUUID = this.api.hap.uuid.generate(String(this.config.platform));
         this.securitySystemEnabled = this.config.advanced?.securitySystem === true;
+        this.defaultTriggerableModes = Array.isArray(this.config.advanced?.defaultTriggerableModes)
+            ? this.config.advanced.defaultTriggerableModes.map(String)
+            : ['1']; // default: trip in Away
         this.entryTriggerDelay =
             this.config.advanced?.entryDelaySettings?.delay !== null &&
                 typeof this.config.advanced?.entryDelaySettings?.delay !== 'undefined'
@@ -164,7 +169,7 @@ export class KonnectedHomebridgePlatform {
             }
             discovered.push({ enabled: true, entityId: entity.id });
         });
-        this.log.info(`[${panelLabel}] Auto-discovered ${discovered.length} zone(s) from the panel (no zones[] configured).` +
+        this.log.info(`[${panelLabel}] Auto-discovered ${discovered.length} zone(s) from the panel.` +
             (skipped.length ? ` Skipped: ${skipped.join(', ')}.` : ''));
         if (discovered.length === 0 && snapshot.size === 0) {
             this.log.warn(`[${panelLabel}] No entities seen yet — the panel may be unreachable. No zones created.`);
@@ -182,6 +187,29 @@ export class KonnectedHomebridgePlatform {
         }
     }
     /**
+     * Produce the final zone list for a panel: auto-discovered zones (unless
+     * autoDiscover is false) with config `zones` layered on top as overrides,
+     * matched by entityId. Config entries merge onto discovered ones (or add new
+     * explicit zones); `enabled: false` drops a zone.
+     */
+    mergeZones(panel, snapshot) {
+        const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
+        const exclude = Array.isArray(panel.exclude) ? panel.exclude : [];
+        const merged = new Map();
+        if (panel.autoDiscover !== false) {
+            this.autoDiscoverZones(panelLabel, snapshot, exclude).forEach((zone) => merged.set(zone.entityId, zone));
+        }
+        // layer config overrides: merge onto a discovered zone, or add as explicit
+        (Array.isArray(panel.zones) ? panel.zones : []).forEach((zone) => {
+            if (!zone.entityId) {
+                this.log.warn(`[${panelLabel}] Ignoring a zone override with no "entityId".`);
+                return;
+            }
+            merged.set(zone.entityId, { ...(merged.get(zone.entityId) || {}), ...zone });
+        });
+        return Array.from(merged.values()).filter((zone) => zone.enabled !== false);
+    }
+    /**
      * Build (and reconcile) HomeKit accessories for one panel's configured zones.
      * `snapshot` is the panel's initial entity-state burst, used to infer types for
      * zones that omit `type` (device_class via the native API) and to seed names.
@@ -190,11 +218,8 @@ export class KonnectedHomebridgePlatform {
     buildPanelZones(panel, snapshot) {
         const panelId = this.panelIdFor(panel);
         const panelLabel = panel.name && panel.name !== '' ? panel.name : panel.host;
-        // explicit zones if configured, otherwise auto-discover from the panel's entities
-        let zones = Array.isArray(panel.zones) ? panel.zones : [];
-        if (zones.length === 0) {
-            zones = this.autoDiscoverZones(panelLabel, snapshot, Array.isArray(panel.exclude) ? panel.exclude : []);
-        }
+        // auto-discovered zones with config zones layered on top as overrides
+        const zones = this.mergeZones(panel, snapshot);
         const panelRuntimeZones = [];
         const retainedAccessories = [];
         const seenUUIDs = [];
@@ -253,8 +278,15 @@ export class KonnectedHomebridgePlatform {
             if (zone.audibleBeep) {
                 zoneObject.audibleBeep = zone.audibleBeep;
             }
-            if (zone.triggerableModes) {
-                zoneObject.triggerableModes = zone.triggerableModes;
+            // triggerable modes: explicit per-zone wins (including [] to disable); otherwise sensor
+            // zones default to the configured default modes so all sensors arm by default.
+            const triggerableModes = zone.triggerableModes !== undefined
+                ? zone.triggerableModes
+                : ZONE_TYPES.sensors.includes(type)
+                    ? this.defaultTriggerableModes
+                    : undefined;
+            if (triggerableModes && triggerableModes.length > 0) {
+                zoneObject.triggerableModes = triggerableModes;
             }
             // carry forward previous state from Homebridge's cached accessory
             this.accessories.forEach((accessory) => {
